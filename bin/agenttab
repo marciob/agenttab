@@ -2,26 +2,31 @@
 # agenttab: set the terminal title of an agent session to "<state icon> <text>".
 #
 #   agenttab hook <idle|busy|wait>   run by a Claude Code hook. Reads the hook JSON on stdin.
+#   agenttab spin <tty> <pid>        the animation of the busy icon. The hook starts it.
 #
 # The hook must print nothing: Claude gives the stdout of some hooks to the model.
 
 CONFIG="${AGENTTAB_CONFIG:-$HOME/.config/agenttab/config}"
+STATE_DIR="${AGENTTAB_STATE:-$HOME/.cache/agenttab}"
 
 # Defaults. The config file can change each one.
+# An icon with several frames, separated by spaces, is an animation.
 ICON_IDLE=""
-ICON_BUSY="◑"
+ICON_BUSY="◐ ◑"
 ICON_WAIT="⚠"
-TEXT="topic"     # topic: the title of the conversation. folder: the name of the directory.
+SPIN_INTERVAL="0.5"   # seconds between two frames
+TEXT="topic"          # topic: the title of the conversation. folder: the name of the directory.
 [ -f "$CONFIG" ] && . "$CONFIG"
 
-# The terminal of the agent: the first ancestor process that has a tty.
+# The agent process and its terminal: the first ancestor that has a tty.
+# Sets AGENT_PID and TTY.
 find_tty() {
   pid=$PPID
   while [ -n "$pid" ] && [ "$pid" -gt 1 ]; do
     tty=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
     case "$tty" in
       ""|"??"|"?") pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ') ;;
-      *) echo "/dev/$tty"; return 0 ;;
+      *) AGENT_PID=$pid; TTY="/dev/$tty"; return 0 ;;
     esac
   done
   return 1
@@ -31,6 +36,18 @@ find_tty() {
 topic() {
   [ -f "$1" ] || return 0
   grep '"type":"ai-title"' "$1" | tail -1 | jq -r '.aiTitle // empty' 2>/dev/null
+}
+
+title() {
+  printf '\033]0;%s\007' "${2:+$2 }$3" > "$1"
+}
+
+# Stop the animation of this terminal, if one runs.
+stop_spin() {
+  pidfile="$STATE_DIR/$(basename "$1").spin"
+  [ -f "$pidfile" ] || return 0
+  kill "$(cat "$pidfile")" 2>/dev/null
+  rm -f "$pidfile"
 }
 
 hook() {
@@ -49,13 +66,47 @@ hook() {
   [ "$TEXT" = "topic" ] && text=$(topic "$transcript")
   [ -z "$text" ] && text=$(basename "${cwd:-$PWD}")
 
-  tty=$(find_tty) || return 0
-  [ -w "$tty" ] || return 0
-  printf '\033]0;%s\007' "${icon:+$icon }$text" > "$tty"
+  find_tty || return 0
+  [ -w "$TTY" ] || return 0
+  mkdir -p "$STATE_DIR"
+  printf '%s' "$text" > "$STATE_DIR/$(basename "$TTY").text"
+
+  # One frame: a static icon. Several frames: an animation.
+  set -- $icon
+  if [ $# -le 1 ]; then
+    stop_spin "$TTY"
+    title "$TTY" "$icon" "$text"
+    return 0
+  fi
+
+  # Busy again while the animation runs (PostToolUse): let it run.
+  pidfile="$STATE_DIR/$(basename "$TTY").spin"
+  if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+    return 0
+  fi
+  nohup "$0" spin "$TTY" "$AGENT_PID" </dev/null >/dev/null 2>&1 &
+  echo $! > "$pidfile"
+}
+
+# Show each frame in turn. Stop when the agent or the terminal is gone,
+# so that no process stays after the session.
+spin() {
+  tty=$1 agent=$2
+  textfile="$STATE_DIR/$(basename "$tty").text"
+  set -- $ICON_BUSY
+  while :; do
+    for frame in "$@"; do
+      kill -0 "$agent" 2>/dev/null || exit 0
+      text=$(cat "$textfile" 2>/dev/null)
+      title "$tty" "$frame" "$text" 2>/dev/null || exit 0
+      sleep "$SPIN_INTERVAL"
+    done
+  done
 }
 
 case "$1" in
   hook) shift; hook "$@" >/dev/null 2>&1 ;;
+  spin) shift; spin "$@" ;;
   *) echo "usage: agenttab hook <idle|busy|wait>" >&2; exit 2 ;;
 esac
 exit 0
