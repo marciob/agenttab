@@ -14,7 +14,7 @@ STATE_DIR="${AGENTTAB_STATE:-$HOME/.cache/agenttab}"
 ICON_IDLE=""
 ICON_BUSY="◐ ◑"
 ICON_WAIT="⚠"
-SPIN_INTERVAL="0.5"   # seconds between two frames
+SPIN_INTERVAL="0.8"   # seconds between two frames
 TEXT="topic"          # topic: the title of the conversation. folder: the name of the directory.
 [ -f "$CONFIG" ] && . "$CONFIG"
 

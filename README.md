@@ -19,7 +19,7 @@ Write the file `~/.config/agenttab/config`. Each line is optional:
 ICON_IDLE=""
 ICON_BUSY="◐ ◑"         # several frames, separated by spaces, make an animation
 ICON_WAIT="⚠"
-SPIN_INTERVAL="0.5"     # seconds between two frames
+SPIN_INTERVAL="0.8"     # seconds between two frames
 TEXT="topic"   # topic: the title of the conversation. folder: the name of the directory.
 ```
 
