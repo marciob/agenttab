@@ -7,7 +7,7 @@ agenttab sets the title of the terminal of an agent session. The title is
 
 | Icon | State | Hook of Claude Code |
 |---|---|---|
-| `✳` | The agent waits for your next prompt. | `SessionStart`, `Stop` |
+| (none) | The agent waits for your next prompt. | `SessionStart`, `Stop` |
 | `◑` | The agent works. | `UserPromptSubmit`, `PostToolUse` |
 | `⚠` | The agent waits for your permission. | `Notification` (`permission_prompt`) |
 
@@ -16,7 +16,7 @@ agenttab sets the title of the terminal of an agent session. The title is
 Write the file `~/.config/agenttab/config`. Each line is optional:
 
 ```sh
-ICON_IDLE="✳"
+ICON_IDLE=""
 ICON_BUSY="◑"
 ICON_WAIT="⚠"
 TEXT="topic"   # topic: the title of the conversation. folder: the name of the directory.
