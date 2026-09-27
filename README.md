@@ -1,6 +1,7 @@
 # agenttab
 
-agenttab sets the title of the terminal of an agent session. The title is
+agenttab sets the title of the terminal of an agent session. It works with
+Claude Code, Codex, and OpenCode. The title is
 `<state icon> <text>`, for example `◑ Terminal title customization`.
 
 ## States
@@ -11,6 +12,43 @@ agenttab sets the title of the terminal of an agent session. The title is
 | `◐` `◑` in turn | The agent works. | `UserPromptSubmit`, `PostToolUse` |
 | `⚠` | The agent waits for your permission. | `Notification` (`permission_prompt`) |
 | (the shell title) | The session ends. | `SessionEnd` |
+
+## Codex
+
+Codex 0.157 has hooks like Claude Code. Put them in `~/.codex/hooks.json`:
+
+| Event | Command |
+|---|---|
+| `SessionStart`, `Stop`, `Interrupt` | `agenttab hook idle codex` |
+| `UserPromptSubmit`, `PostToolUse` | `agenttab hook busy codex` |
+| `PermissionRequest` | `agenttab hook wait codex` |
+| `SessionEnd` | `agenttab hook end codex` |
+
+The timeout of the `Interrupt` hook must be 3 seconds or less.
+
+Codex runs a new hook only after you trust it. Start Codex, type `/hooks`, and
+trust each agenttab hook.
+
+To stop the title of Codex itself, add this to `~/.codex/config.toml`:
+
+```toml
+[tui]
+terminal_title = []
+```
+
+The text of the title is the name of the thread, from
+`~/.codex/session_index.jsonl`.
+
+## OpenCode
+
+OpenCode has no hooks. The plugin `opencode/agenttab.js` reads the events of
+the session and runs `agenttab set <state> <text>`.
+
+1. Link the plugin: `ln -s "$PWD/opencode/agenttab.js" ~/.config/opencode/plugins/`
+2. Add `export OPENCODE_DISABLE_TERMINAL_TITLE=1` to `~/.zshrc`.
+
+The plugin ignores the busy and idle states of a subagent session. A permission
+request from a subagent shows the wait icon, because it waits for you too.
 
 ## Settings
 

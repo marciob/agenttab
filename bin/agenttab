@@ -1,11 +1,14 @@
 #!/bin/sh
 # agenttab: set the terminal title of an agent session to "<state icon> <text>".
 #
-#   agenttab hook <idle|busy|wait|end>  run by a Claude Code hook. Reads the hook JSON on stdin.
-#   agenttab refresh <tty>              write the title again, after a change of name.
+#   agenttab hook <state> [claude|codex]  run by a hook. Reads the hook JSON on stdin.
+#   agenttab set <state> [text]           for an agent with no hooks, such as the OpenCode plugin.
+#   agenttab refresh <tty>                write the title again, after a change of name.
+#
+# The states are idle, busy, wait, and end.
 #   agenttab spin <tty> <pid>           the animation of the busy icon. The hook starts it.
 #
-# The hook must print nothing: Claude gives the stdout of some hooks to the model.
+# The hook must print nothing: Claude and Codex give the stdout of some hooks to the model.
 #
 # Files in STATE_DIR, for each terminal (for example ttys102):
 #   ttys102.name   the name that the user gave in the editor. It comes first.
@@ -39,13 +42,21 @@ find_tty() {
   return 1
 }
 
-# The title of the conversation, or nothing. A name that the user gave with
-# /rename (custom-title) comes before the title that Claude Code made (ai-title).
+# The title of a Claude Code conversation, or nothing. A name that the user gave
+# with /rename (custom-title) comes before the title that Claude Code made (ai-title).
 topic() {
   [ -f "$1" ] || return 0
   name=$(grep '"type":"custom-title"' "$1" | tail -1 | jq -r '.customTitle // empty' 2>/dev/null)
   [ -n "$name" ] && { echo "$name"; return 0; }
   grep '"type":"ai-title"' "$1" | tail -1 | jq -r '.aiTitle // empty' 2>/dev/null
+}
+
+# The title of a Codex thread, or nothing. Codex adds a line to its index for
+# each new name, so the last line of the thread is the current name.
+codex_topic() {
+  index="${CODEX_HOME:-$HOME/.codex}/session_index.jsonl"
+  [ -n "$1" ] && [ -f "$index" ] || return 0
+  grep -F "\"id\":\"$1\"" "$index" | tail -1 | jq -r '.thread_name // empty' 2>/dev/null
 }
 
 # The path of one state file of a terminal: file <tty> <kind>
@@ -85,11 +96,26 @@ stop_spin() {
   rm -f "$pidfile"
 }
 
+# Read the hook JSON of Claude Code or Codex, and find the text of the title.
 hook() {
-  state=$1
-  case "$state" in idle|busy|wait|end) ;; *) return 1 ;; esac
-
+  state=$1 vendor=${2:-claude}
   input=$(cat)
+  cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
+  text=""
+  if [ "$TEXT" = "topic" ] && [ "$state" != end ]; then
+    case "$vendor" in
+      claude) text=$(topic "$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)") ;;
+      codex) text=$(codex_topic "$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)") ;;
+    esac
+  fi
+  [ -z "$text" ] && text=$(basename "${cwd:-$PWD}")
+  apply "$state" "$text"
+}
+
+# Write the state and the title of the terminal of the agent: apply <state> <text>
+apply() {
+  state=$1 text=$2
+  case "$state" in idle|busy|wait|end) ;; *) return 1 ;; esac
   find_tty || return 0
   [ -w "$TTY" ] || return 0
   mkdir -p "$STATE_DIR"
@@ -101,11 +127,7 @@ hook() {
     return 0
   fi
 
-  cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
-  transcript=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
-  text=""
-  [ "$TEXT" = "topic" ] && text=$(topic "$transcript")
-  [ -z "$text" ] && text=$(basename "${cwd:-$PWD}")
+  [ -z "$text" ] && text=$(basename "$PWD")
   printf '%s' "$text" > "$(file "$TTY" text)"
   printf '%s' "$state" > "$(file "$TTY" state)"
 
@@ -152,8 +174,9 @@ spin() {
 
 case "$1" in
   hook) shift; hook "$@" >/dev/null 2>&1 ;;
+  set) shift; apply "$@" >/dev/null 2>&1 ;;
   refresh) shift; refresh "$@" ;;
   spin) shift; spin "$@" ;;
-  *) echo "usage: agenttab hook <idle|busy|wait|end> | agenttab refresh <tty>" >&2; exit 2 ;;
+  *) echo "usage: agenttab hook <state> [claude|codex] | set <state> [text] | refresh <tty>" >&2; exit 2 ;;
 esac
 exit 0
