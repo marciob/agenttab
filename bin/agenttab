@@ -1,10 +1,17 @@
 #!/bin/sh
 # agenttab: set the terminal title of an agent session to "<state icon> <text>".
 #
-#   agenttab hook <idle|busy|wait>   run by a Claude Code hook. Reads the hook JSON on stdin.
-#   agenttab spin <tty> <pid>        the animation of the busy icon. The hook starts it.
+#   agenttab hook <idle|busy|wait|end>  run by a Claude Code hook. Reads the hook JSON on stdin.
+#   agenttab refresh <tty>              write the title again, after a change of name.
+#   agenttab spin <tty> <pid>           the animation of the busy icon. The hook starts it.
 #
 # The hook must print nothing: Claude gives the stdout of some hooks to the model.
+#
+# Files in STATE_DIR, for each terminal (for example ttys102):
+#   ttys102.name   the name that the user gave in the editor. It comes first.
+#   ttys102.text   the text from the agent: the title of the conversation, or the folder.
+#   ttys102.state  idle, busy, or wait, while an agent runs.
+#   ttys102.spin   the pid of the animation.
 
 CONFIG="${AGENTTAB_CONFIG:-$HOME/.config/agenttab/config}"
 STATE_DIR="${AGENTTAB_STATE:-$HOME/.cache/agenttab}"
@@ -41,67 +48,103 @@ topic() {
   grep '"type":"ai-title"' "$1" | tail -1 | jq -r '.aiTitle // empty' 2>/dev/null
 }
 
+# The path of one state file of a terminal: file <tty> <kind>
+file() {
+  echo "$STATE_DIR/$(basename "$1").$2"
+}
+
+# The text of the title: the name from the editor, else the text from the agent.
+label() {
+  name=$(cat "$(file "$1" name)" 2>/dev/null)
+  [ -n "$name" ] && { echo "$name"; return 0; }
+  cat "$(file "$1" text)" 2>/dev/null
+}
+
 title() {
   printf '\033]0;%s\007' "${2:+$2 }$3" > "$1"
 }
 
+icon_of() {
+  case "$1" in
+    idle) echo "$ICON_IDLE" ;;
+    busy) echo "$ICON_BUSY" ;;
+    wait) echo "$ICON_WAIT" ;;
+  esac
+}
+
+spin_alive() {
+  pidfile=$(file "$1" spin)
+  [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null
+}
+
 # Stop the animation of this terminal, if one runs.
 stop_spin() {
-  pidfile="$STATE_DIR/$(basename "$1").spin"
+  pidfile=$(file "$1" spin)
   [ -f "$pidfile" ] || return 0
   kill "$(cat "$pidfile")" 2>/dev/null
   rm -f "$pidfile"
 }
 
 hook() {
-  case "$1" in
-    idle) icon=$ICON_IDLE ;;
-    busy) icon=$ICON_BUSY ;;
-    wait) icon=$ICON_WAIT ;;
-    *) return 1 ;;
-  esac
+  state=$1
+  case "$state" in idle|busy|wait|end) ;; *) return 1 ;; esac
 
   input=$(cat)
-  cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
-  transcript=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
-
-  text=""
-  [ "$TEXT" = "topic" ] && text=$(topic "$transcript")
-  [ -z "$text" ] && text=$(basename "${cwd:-$PWD}")
-
   find_tty || return 0
   [ -w "$TTY" ] || return 0
   mkdir -p "$STATE_DIR"
-  printf '%s' "$text" > "$STATE_DIR/$(basename "$TTY").text"
+
+  # The session ends: the shell writes its own title again.
+  if [ "$state" = end ]; then
+    stop_spin "$TTY"
+    rm -f "$(file "$TTY" state)" "$(file "$TTY" text)"
+    return 0
+  fi
+
+  cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
+  transcript=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
+  text=""
+  [ "$TEXT" = "topic" ] && text=$(topic "$transcript")
+  [ -z "$text" ] && text=$(basename "${cwd:-$PWD}")
+  printf '%s' "$text" > "$(file "$TTY" text)"
+  printf '%s' "$state" > "$(file "$TTY" state)"
 
   # One frame: a static icon. Several frames: an animation.
+  icon=$(icon_of "$state")
   set -- $icon
   if [ $# -le 1 ]; then
     stop_spin "$TTY"
-    title "$TTY" "$icon" "$text"
+    title "$TTY" "$icon" "$(label "$TTY")"
     return 0
   fi
 
   # Busy again while the animation runs (PostToolUse): let it run.
-  pidfile="$STATE_DIR/$(basename "$TTY").spin"
-  if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
-    return 0
-  fi
+  spin_alive "$TTY" && return 0
   nohup "$0" spin "$TTY" "$AGENT_PID" </dev/null >/dev/null 2>&1 &
-  echo $! > "$pidfile"
+  echo $! > "$(file "$TTY" spin)"
+}
+
+# Write the title of a terminal again. The editor calls this after a new name.
+# A running animation takes the new name at its next frame.
+refresh() {
+  tty=$1
+  [ -w "$tty" ] || return 1
+  spin_alive "$tty" && return 0
+  text=$(label "$tty")
+  [ -n "$text" ] || return 0
+  set -- $(icon_of "$(cat "$(file "$tty" state)" 2>/dev/null)")
+  title "$tty" "$1" "$text"
 }
 
 # Show each frame in turn. Stop when the agent or the terminal is gone,
 # so that no process stays after the session.
 spin() {
   tty=$1 agent=$2
-  textfile="$STATE_DIR/$(basename "$tty").text"
   set -- $ICON_BUSY
   while :; do
     for frame in "$@"; do
       kill -0 "$agent" 2>/dev/null || exit 0
-      text=$(cat "$textfile" 2>/dev/null)
-      title "$tty" "$frame" "$text" 2>/dev/null || exit 0
+      title "$tty" "$frame" "$(label "$tty")" 2>/dev/null || exit 0
       sleep "$SPIN_INTERVAL"
     done
   done
@@ -109,7 +152,8 @@ spin() {
 
 case "$1" in
   hook) shift; hook "$@" >/dev/null 2>&1 ;;
+  refresh) shift; refresh "$@" ;;
   spin) shift; spin "$@" ;;
-  *) echo "usage: agenttab hook <idle|busy|wait>" >&2; exit 2 ;;
+  *) echo "usage: agenttab hook <idle|busy|wait|end> | agenttab refresh <tty>" >&2; exit 2 ;;
 esac
 exit 0

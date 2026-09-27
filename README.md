@@ -10,6 +10,7 @@ agenttab sets the title of the terminal of an agent session. The title is
 | (none) | The agent waits for your next prompt. | `SessionStart`, `Stop` |
 | `◐` `◑` in turn | The agent works. | `UserPromptSubmit`, `PostToolUse` |
 | `⚠` | The agent waits for your permission. | `Notification` (`permission_prompt`) |
+| (the shell title) | The session ends. | `SessionEnd` |
 
 ## Settings
 
@@ -29,15 +30,34 @@ Type `/rename <name>` in Claude Code. agenttab then shows that name, with the
 icon of the state, in place of the title that Claude Code made. The name shows
 at the next change of state.
 
-Use `/rename`, not the Rename item in the menu of the Cursor tab. agenttab
-cannot read a name from that menu, because Cursor keeps it inside the editor.
+## A name from Cursor
+
+Right-click the tab of a terminal and select **Rename (agenttab)**. The command
+is also in the command palette as **Terminal: Rename (agenttab)**. An empty
+name gives the automatic title back.
+
+Do not use the built-in **Rename** item. It makes the name of the tab static,
+so the tab ignores the title that agenttab writes, and the icon does not show.
+
+The extension is in `cursor/`. It writes the name to
+`~/.cache/agenttab/<tty>.name` and runs `agenttab refresh`. The name comes
+before `/rename` and before the automatic title. The zsh hook reads the same
+file, so a terminal with no agent also shows the name.
+
+To build and install it:
+
+```sh
+cd cursor
+npx @vscode/vsce package --allow-missing-repository
+cursor --install-extension agenttab-0.1.0.vsix
+```
 
 An empty icon gives a title with no icon.
 
 ## Install
 
 1. Put `bin/agenttab` on the PATH.
-2. Add the five hooks above to `~/.claude/settings.json`, as `agenttab hook <idle|busy|wait>`.
+2. Add the six hooks above to `~/.claude/settings.json`, as `agenttab hook <idle|busy|wait|end>`.
 3. Add `export CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1` to `~/.zshrc`. Claude Code then does not write its own title.
 4. In Cursor or VS Code, set `"terminal.integrated.tabs.title": "${sequence}"`.
 
