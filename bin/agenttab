@@ -32,9 +32,12 @@ find_tty() {
   return 1
 }
 
-# The last title that Claude Code wrote into the transcript, or nothing.
+# The title of the conversation, or nothing. A name that the user gave with
+# /rename (custom-title) comes before the title that Claude Code made (ai-title).
 topic() {
   [ -f "$1" ] || return 0
+  name=$(grep '"type":"custom-title"' "$1" | tail -1 | jq -r '.customTitle // empty' 2>/dev/null)
+  [ -n "$name" ] && { echo "$name"; return 0; }
   grep '"type":"ai-title"' "$1" | tail -1 | jq -r '.aiTitle // empty' 2>/dev/null
 }
 

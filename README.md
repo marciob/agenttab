@@ -23,6 +23,15 @@ SPIN_INTERVAL="0.8"     # seconds between two frames
 TEXT="topic"   # topic: the title of the conversation. folder: the name of the directory.
 ```
 
+## Your own name for a session
+
+Type `/rename <name>` in Claude Code. agenttab then shows that name, with the
+icon of the state, in place of the title that Claude Code made. The name shows
+at the next change of state.
+
+Do not rename the tab in the menu of Cursor. A tab with a name from that menu
+ignores the title that a program sends, so the icon does not show.
+
 An empty icon gives a title with no icon.
 
 ## Install
