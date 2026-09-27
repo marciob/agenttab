@@ -29,8 +29,8 @@ Type `/rename <name>` in Claude Code. agenttab then shows that name, with the
 icon of the state, in place of the title that Claude Code made. The name shows
 at the next change of state.
 
-Do not rename the tab in the menu of Cursor. A tab with a name from that menu
-ignores the title that a program sends, so the icon does not show.
+Use `/rename`, not the Rename item in the menu of the Cursor tab. agenttab
+cannot read a name from that menu, because Cursor keeps it inside the editor.
 
 An empty icon gives a title with no icon.
 
