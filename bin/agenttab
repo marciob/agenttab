@@ -27,6 +27,7 @@ ICON_WAIT="⚠"
 SPIN_INTERVAL="0.8"   # seconds between two frames
 TEXT="topic"          # topic: the title of the conversation. folder: the name of the directory.
 [ -f "$CONFIG" ] && . "$CONFIG"
+TTY="" AGENT_PID=""
 
 # The agent process and its terminal: the first ancestor that has a tty.
 # Sets AGENT_PID and TTY.
@@ -40,6 +41,24 @@ find_tty() {
     esac
   done
   return 1
+}
+
+# The interactive Codex runs its turns in a shared daemon that has no tty, so
+# the hook has no tty among its ancestors. Find the `codex` process that has a
+# tty and runs in the same directory. With two or more of them, the tab is not
+# known, and agenttab writes nothing. Sets AGENT_PID and TTY.
+find_tty_by_cwd() {
+  [ -n "$1" ] || return 1
+  found="" count=0
+  for line in $(ps -Ao pid=,tty=,comm= | awk '$3 ~ /(^|\/)codex$/ && $2 !~ /^\?/ {print $1 ":" $2}'); do
+    pid=${line%%:*}
+    cwd=$(lsof -a -d cwd -p "$pid" -Fn 2>/dev/null | sed -n 's/^n//p')
+    [ "$cwd" = "$1" ] || continue
+    found=$line count=$((count + 1))
+  done
+  [ "$count" -eq 1 ] || return 1
+  AGENT_PID=${found%%:*}
+  TTY="/dev/${found#*:}"
 }
 
 # The title of a Claude Code conversation, or nothing. A name that the user gave
@@ -109,14 +128,18 @@ hook() {
     esac
   fi
   [ -z "$text" ] && text=$(basename "${cwd:-$PWD}")
+  if ! find_tty; then
+    [ "$vendor" = codex ] && find_tty_by_cwd "$cwd" || return 0
+  fi
   apply "$state" "$text"
 }
 
 # Write the state and the title of the terminal of the agent: apply <state> <text>
+# The hook finds the terminal before. For `agenttab set`, apply finds it.
 apply() {
   state=$1 text=$2
   case "$state" in idle|busy|wait|end) ;; *) return 1 ;; esac
-  find_tty || return 0
+  [ -n "$TTY" ] || find_tty || return 0
   [ -w "$TTY" ] || return 0
   mkdir -p "$STATE_DIR"
 
@@ -143,7 +166,6 @@ apply() {
   # Busy again while the animation runs (PostToolUse): let it run.
   spin_alive "$TTY" && return 0
   nohup "$0" spin "$TTY" "$AGENT_PID" </dev/null >/dev/null 2>&1 &
-  echo $! > "$(file "$TTY" spin)"
 }
 
 # Write the title of a terminal again. The editor calls this after a new name.
@@ -160,12 +182,21 @@ refresh() {
 
 # Show each frame in turn. Stop when the agent or the terminal is gone,
 # so that no process stays after the session.
+#
+# Two busy hooks at the same time (tools that end together) can start two
+# loops. Each loop writes its pid to the pid file, and the last one wins. A
+# loop that does not own the pid file, or that sees a state other than busy,
+# stops before its next frame. Two loops out of step make the title blink.
 spin() {
   tty=$1 agent=$2
+  pidfile=$(file "$tty" spin) statefile=$(file "$tty" state)
+  echo $$ > "$pidfile"
   set -- $ICON_BUSY
   while :; do
     for frame in "$@"; do
       kill -0 "$agent" 2>/dev/null || exit 0
+      [ "$(cat "$pidfile" 2>/dev/null)" = "$$" ] || exit 0
+      [ "$(cat "$statefile" 2>/dev/null)" = busy ] || exit 0
       title "$tty" "$frame" "$(label "$tty")" 2>/dev/null || exit 0
       sleep "$SPIN_INTERVAL"
     done

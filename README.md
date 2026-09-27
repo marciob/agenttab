@@ -39,6 +39,12 @@ terminal_title = []
 The text of the title is the name of the thread, from
 `~/.codex/session_index.jsonl`.
 
+The interactive Codex runs its turns in a shared daemon, and that daemon runs
+the hooks. The daemon has no terminal. So agenttab finds the `codex` process
+that has a terminal and runs in the directory of the thread. If two Codex
+sessions run in the same directory, agenttab does not know which tab is the
+right one, and it writes no title.
+
 ## OpenCode
 
 OpenCode has no hooks. The plugin `opencode/agenttab.js` reads the events of
