@@ -81,7 +81,8 @@ is also in the command palette as **Terminal: Rename (agenttab)**. An empty
 name gives the automatic title back.
 
 Do not use the built-in **Rename** item. It makes the name of the tab static,
-so the tab ignores the title that agenttab writes, and the icon does not show.
+so the tab ignores the title that agenttab writes, and the icon does not show. A rename with an empty name does not make the
+tab dynamic again (VS Code issue #333933). Close that tab and open a new one.
 
 The extension is in `cursor/`. It writes the name to
 `~/.cache/agenttab/<tty>.name` and runs `agenttab refresh`. The name comes
