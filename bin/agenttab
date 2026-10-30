@@ -12,6 +12,9 @@
 #
 # Files in STATE_DIR, for each terminal (for example ttys102):
 #   ttys102.name   the name that the user gave in the editor. It comes first.
+#                  Line 1 is the pid of the shell of the terminal, line 2 is the name.
+#                  macOS gives the number of a closed tty to a new terminal, so the
+#                  name applies only while that shell has this tty.
 #   ttys102.text   the text from the agent: the title of the conversation, or the folder.
 #   ttys102.state  idle, busy, or wait, while an agent runs.
 #   ttys102.spin   the pid of the animation.
@@ -83,9 +86,21 @@ file() {
   echo "$STATE_DIR/$(basename "$1").$2"
 }
 
+# The name from the editor, or nothing. A name of a closed terminal is deleted.
+name_of() {
+  f=$(file "$1" name)
+  [ -s "$f" ] || return 0
+  { read -r owner; read -r name; } < "$f"
+  if [ -n "$owner" ] && [ "$(ps -o tty= -p "$owner" 2>/dev/null | tr -d ' ')" = "$(basename "$1")" ]; then
+    echo "$name"
+  else
+    rm -f "$f"
+  fi
+}
+
 # The text of the title: the name from the editor, else the text from the agent.
 label() {
-  name=$(cat "$(file "$1" name)" 2>/dev/null)
+  name=$(name_of "$1")
   [ -n "$name" ] && { echo "$name"; return 0; }
   cat "$(file "$1" text)" 2>/dev/null
 }

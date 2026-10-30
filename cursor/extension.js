@@ -18,12 +18,12 @@ function run(cmd, args) {
     execFile(cmd, args, (err, stdout) => (err ? reject(err) : resolve(stdout.trim()))));
 }
 
-// The tty of the shell of a terminal, for example "ttys102".
-async function ttyOf(terminal) {
+// The shell pid and the tty of a terminal, for example { pid: 4242, tty: "ttys102" }.
+async function shellOf(terminal) {
   const pid = await terminal.processId;
   if (!pid) return null;
   const tty = await run('ps', ['-o', 'tty=', '-p', String(pid)]);
-  return tty && tty !== '??' ? tty : null;
+  return tty && tty !== '??' ? { pid, tty } : null;
 }
 
 async function rename(arg) {
@@ -31,15 +31,21 @@ async function rename(arg) {
   const terminal = arg && typeof arg.processId === 'object' ? arg : vscode.window.activeTerminal;
   if (!terminal) return;
 
-  const tty = await ttyOf(terminal);
-  if (!tty) {
+  const shell = await shellOf(terminal);
+  if (!shell) {
     vscode.window.showWarningMessage('agenttab: cannot find the tty of this terminal.');
     return;
   }
 
+  const { pid, tty } = shell;
+  // Line 1: the pid of the shell. Line 2: the name. macOS gives the number of a
+  // closed tty to a new terminal, and the pid tells the two terminals apart.
   const file = path.join(STATE_DIR, `${tty}.name`);
   let current = '';
-  try { current = fs.readFileSync(file, 'utf8'); } catch {}
+  try {
+    const [owner, name] = fs.readFileSync(file, 'utf8').split('\n');
+    if (owner === String(pid)) current = name || '';
+  } catch {}
 
   const name = await vscode.window.showInputBox({
     prompt: 'Name of this terminal. An empty name gives the automatic title back.',
@@ -48,7 +54,7 @@ async function rename(arg) {
   if (name === undefined) return; // Escape
 
   fs.mkdirSync(STATE_DIR, { recursive: true });
-  if (name.trim()) fs.writeFileSync(file, name.trim());
+  if (name.trim()) fs.writeFileSync(file, `${pid}\n${name.trim()}`);
   else fs.rmSync(file, { force: true });
 
   try {
